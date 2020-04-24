@@ -11,7 +11,7 @@ using System.Drawing;
 // https://github.com/SebLague
 // Modified to get only the closed domains
 
-namespace random_map_generator
+namespace constrained_delaunay_triangulation_rupperts
 {
     public class map_generator
     {
@@ -34,6 +34,167 @@ namespace random_map_generator
         {
             map_generated = false;
         }
+
+        public void detect_surfaces(ref List<pslg_datastructure.surface_store> set_surfaces)
+        {
+            // Find the closed loop which are not self intersecting
+            // transfer to temporary nodes and temporary edges
+            // List<map_node> temp_border_nodes = new List<map_node>();
+            List<map_edge> temp_border_edges = new List<map_edge>();
+
+            //temp_border_nodes = the_squaregrid.border_nodes;
+            temp_border_edges.AddRange(the_squaregrid.border_edges);
+
+            //bool is_closed = false;
+            //int i, j;
+            // temporary surfaces
+            List<pslg_datastructure.surface_store> temp_surfaces = new List<pslg_datastructure.surface_store>();
+
+
+            while (temp_border_edges.Count > 0) // loop until all the border edges are visited
+            {
+                List<map_edge> temp_border_edges_1 = new List<map_edge>(); // border edge sublist 1
+                temp_border_edges_1.AddRange(temp_border_edges); // add the main list to sublist 1
+                temp_border_edges_1.RemoveAt(0); // remove the first edge
+
+
+                List<map_edge> temp_border_edges_2 = new List<map_edge>(); // border edge sublist 2
+                temp_border_edges_2.Add(temp_border_edges[0]); // add only the first edge frpm mail list
+                int current_edge_end_node = temp_border_edges_2[0].index_1; // only one object is at the list
+
+
+                while (temp_border_edges_1.Count > 0)
+                {
+                    map_edge connected_edge = temp_border_edges_1.Find(obj => obj.index_0 == current_edge_end_node || obj.index_1 == current_edge_end_node); // find the connected edge
+                    if (connected_edge != null)
+                    {
+                        if (connected_edge.index_1 == current_edge_end_node) // if the edge end
+                        {
+                            // then the orientation is towards this point so reverse orientation
+                            connected_edge.change_orientation();
+                        }
+
+                        current_edge_end_node = connected_edge.index_1; // index 0 is connected
+                        temp_border_edges_2.Add(connected_edge); // add to the sub list
+                        temp_border_edges_1.RemoveAt(temp_border_edges_1.FindIndex(obj => obj.Equals(connected_edge) == true)); //remove from the sub list 1
+                    }
+                    else
+                    {
+                        break; // exit because there is no edge connected to the current edge end node
+                    }
+                }
+                //_________________________________________
+                if (temp_border_edges_2[0].index_0 == current_edge_end_node) // we started with index_0 so check whether index_1 is connected to the last in the list
+                {
+                    // pslg_datastructure Edges and Points
+                    List<pslg_datastructure.edge2d> surf_edges = new List<pslg_datastructure.edge2d>();
+                    List<pslg_datastructure.point2d> surf_points = new List<pslg_datastructure.point2d>();
+
+                    // closed boundary is confirmed
+                    List<map_node> temp_border_nodes = new List<map_node>();
+                    foreach (map_edge edg in temp_border_edges_2)
+                    {
+                        map_node the_node_1 = the_squaregrid.all_nodes[edg.index_0];
+                        map_node the_node_2 = the_squaregrid.all_nodes[edg.index_1];
+
+                        //pslg_datastructure.point2d pt1,pt2;
+
+                        // Add first node
+                        if (temp_border_nodes.Exists(obj => obj.Equals(the_node_1) == true) == false)
+                        {
+                            temp_border_nodes.Add(the_node_1);
+                            //pslg_datastructure.point2d pt1 = new pslg_datastructure.point2d(surf_points.Count, the_node_1.x, the_node_1.y);
+                            surf_points.Add(new pslg_datastructure.point2d(surf_points.Count, the_node_1.x, the_node_1.y));
+                        }
+
+                        // Add second node
+                        if (temp_border_nodes.Exists(obj => obj.Equals(the_node_2) == true) == false)
+                        {
+                            temp_border_nodes.Add(the_node_2);
+                            //pslg_datastructure.point2d pt2 = new pslg_datastructure.point2d(surf_points.Count, the_node_2.x, the_node_2.y);
+                            surf_points.Add(new pslg_datastructure.point2d(surf_points.Count, the_node_2.x, the_node_2.y));
+                        }
+
+                        // Add the edges
+                        pslg_datastructure.point2d pt1 = surf_points.Find(obj => obj.Equals(new pslg_datastructure.point2d(-1, the_node_1.x, the_node_1.y)) == true);
+                        pslg_datastructure.point2d pt2 = surf_points.Find(obj => obj.Equals(new pslg_datastructure.point2d(-1, the_node_2.x, the_node_2.y)) == true);
+
+                        surf_edges.Add(new pslg_datastructure.edge2d(surf_edges.Count, pt1, pt2));
+                    }
+
+                    // check the surface orientation
+                    pslg_datastructure.surface_store t_surf = new pslg_datastructure.surface_store(temp_surfaces.Count,surf_points, surf_edges, temp_surfaces.Count);
+
+                    if (t_surf.SignedPolygonArea() < 0)// check whether the outter surface is oriented anti clockwise (negative area = clockwise)
+                    {
+                        // clockwise orientation detected so reverse the orientation to be anti-clockwise
+                        t_surf.reverse_surface_orinetation();
+                    }
+
+                    temp_surfaces.Add(t_surf);
+                    //System.Threading.Thread.Sleep(200);
+                }
+
+                foreach (map_edge edg in temp_border_edges_2)
+                {
+                    //remove from the main edge
+                    temp_border_edges.RemoveAt(temp_border_edges.FindIndex(obj => obj.Equals(edg) == true));
+                }
+            }
+
+            // sort the surfaces with surface area
+            temp_surfaces = temp_surfaces.OrderBy(obj => obj.surface_area).ToList();
+            // Set the polygon inside polygon
+            List<int> skip_index = new List<int>();
+            for (int i = 1; i < temp_surfaces.Count; i++)
+            {
+                List<int> inner_surface_index = new List<int>(); // variable to store the index of surface which is inside the i_th surface
+
+                for (int j = i - 1; j >= 0; j--) // cycle through all the other surface except this one
+                {
+                    if (skip_index.Contains(j) == true)
+                    {
+                        continue; // skip the nested surfaces
+                    }
+
+                    bool is_contain = true; // variable to store the point is inside true or false
+                    foreach (pslg_datastructure.point2d pt in temp_surfaces[j].surface_nodes) // cycle thro all the point of j_th polygon
+                    {
+                        if (temp_surfaces[i].PointInPolygon(pt.x, pt.y) == false)// check whether outter polygon contains the inner polygon
+                        {
+                            is_contain = false;
+                            break;
+                        }
+                    }
+
+                    if (is_contain == true)
+                    {
+                        skip_index.Add(j); // skip index is used to avoid adding nested surfaces
+                        inner_surface_index.Add(j);
+                    }
+                }
+
+                List<pslg_datastructure.surface_store> temp_inner_surface = new List<pslg_datastructure.surface_store>();
+                foreach (int k in inner_surface_index)
+                {
+                    // reversed k surface
+
+                    temp_inner_surface.Add(temp_surfaces[k]); // add the found inner surfaces to temporary inner surfaces
+                }
+
+                // innersurface count not = 0
+                if (inner_surface_index.Count != 0)
+                {
+                    temp_surfaces[i].set_inner_surfaces(temp_inner_surface);
+                }
+            }
+
+            // Surface detection complete add to the main list
+            set_surfaces = new List<pslg_datastructure.surface_store>();
+            set_surfaces.AddRange(temp_surfaces);
+        }
+
+
 
         public class square_grid
         {
@@ -181,7 +342,7 @@ namespace random_map_generator
                 //}
 
 
-        
+
 
                 //// _______________________________________________________________________________________________________________
                 //// _______________________________________________________________________________________________________________
@@ -229,7 +390,7 @@ namespace random_map_generator
                     foreach (map_edge ed in temp_border_edges_0)
                     {
                         temp_border_edges.Remove(ed);// Remove from the master edge list
-                        // Also add the nodes to a new list
+                                                     // Also add the nodes to a new list
                         if (temp_border_nodes.Exists(obj => obj.Equals(all_nodes[ed.index_0])) == false)
                         {
                             temp_border_nodes.Add(all_nodes[ed.index_0]);
@@ -320,7 +481,7 @@ namespace random_map_generator
             public bool compare_slope(map_edge e1, map_edge e2)
             {
                 bool is_equal = false;
-               //double eps = 0.0000001; // precision for comparison
+                //double eps = 0.0000001; // precision for comparison
 
                 double slope_e1 = (all_nodes[e1.index_1].y - all_nodes[e1.index_0].y) / (all_nodes[e1.index_1].x - all_nodes[e1.index_0].x); // slope of edge 1
                 double slope_e2 = (all_nodes[e2.index_1].y - all_nodes[e2.index_0].y) / (all_nodes[e2.index_1].x - all_nodes[e2.index_0].x); // slope of edge 2
@@ -491,10 +652,18 @@ namespace random_map_generator
             public bool Equals(map_edge other_edge)
             {
                 bool is_equal = false;
-                if (index_0 == other_edge.index_0 && index_1 == other_edge.index_1)
+                if ((index_0 == other_edge.index_0 && index_1 == other_edge.index_1) || (index_0 == other_edge.index_1 && index_1 == other_edge.index_0))
                     is_equal = true;
 
                 return is_equal;
+            }
+
+            public void change_orientation()
+            {
+                // reverse the orientation
+                int temp = index_0;
+                index_0 = index_1;
+                index_1 = temp;
             }
         }
 
